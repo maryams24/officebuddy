@@ -17,13 +17,30 @@ class Flow:
 # =========================
 # Flow formatters
 def format_ticket(data: dict) -> str:
-    return f"Ticket Created:\nCategory: {data.get('Category')}\nSummary: {data.get('Summary')}\nImpact: {data.get('Business impact')}\nUrgency: {data.get('Urgency')}"
+    return (
+        f"Ticket Created:\n"
+        f"Category: {data.get('Category')}\n"
+        f"Summary: {data.get('Summary')}\n"
+        f"Business Impact: {data.get('Business impact')}\n"
+        f"Urgency: {data.get('Urgency')}"
+    )
 
 def format_leave(data: dict) -> str:
-    return f"Leave Request Submitted:\nType: {data.get('Leave type')}\nDates: {data.get('Dates')}\nManager: {data.get('Manager')}\nNotes: {data.get('Notes')}"
+    return (
+        f"Leave Request Submitted:\n"
+        f"Type: {data.get('Leave type')}\n"
+        f"Dates: {data.get('Dates')}\n"
+        f"Manager: {data.get('Manager')}\n"
+        f"Notes: {data.get('Notes')}"
+    )
 
 def format_email(data: dict) -> str:
-    return f"Email Draft:\nSubject: {data.get('Subject')}\nTo: {data.get('To')}\nBody:\n{data.get('Body')}"
+    return (
+        f"Email Draft:\n"
+        f"Subject: {data.get('Subject')}\n"
+        f"To: {data.get('To')}\n"
+        f"Body:\n{data.get('Body')}"
+    )
 
 # =========================
 # Define flows
@@ -60,12 +77,9 @@ FLOWS = {
 }
 
 # =========================
-# Helpers
+# Helper to get the next unanswered step
 def get_next_step(flow: Flow, data: dict) -> Optional[Step]:
     for step in flow.steps:
         if not data.get(step.field):
             return step
     return None
-
-def start_flow(flow_key: str):
-    return FLOWS[flow_key]
