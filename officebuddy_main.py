@@ -3,7 +3,11 @@ import anthropic
 from datetime import datetime
 import time
 from pathlib import Path
-import json
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure Streamlit page
 st.set_page_config(
@@ -109,7 +113,7 @@ st.markdown("""
         animation: pulse 1.4s infinite;
     }
     
-    /* Button styling */
+    /* Action button */
     .action-button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -215,9 +219,17 @@ if "resolved_count" not in st.session_state:
 # Initialize Anthropic client
 @st.cache_resource
 def get_anthropic_client():
-    return anthropic.Anthropic()
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        st.error("❌ ANTHROPIC_API_KEY not found. Please set your API key in Streamlit secrets or environment variables.")
+        st.stop()
+    return anthropic.Anthropic(api_key=api_key)
 
-client = get_anthropic_client()
+try:
+    client = get_anthropic_client()
+except Exception as e:
+    st.error(f"Failed to initialize Anthropic client: {str(e)}")
+    st.stop()
 
 # Helper function to get system prompt
 def get_system_prompt():
@@ -264,18 +276,14 @@ with st.sidebar:
         st.metric(
             label="Issues",
             value=st.session_state.issue_count,
-            delta=None,
-            fontWeight="bold",
-            fontSize=20
+            delta=None
         )
     
     with col2:
         st.metric(
             label="Resolved",
             value=st.session_state.resolved_count,
-            delta=None,
-            fontWeight="bold",
-            fontSize=20
+            delta=None
         )
     
     with col3:
@@ -283,9 +291,7 @@ with st.sidebar:
         st.metric(
             label="Duration (min)",
             value=session_duration,
-            delta=None,
-            fontWeight="bold",
-            fontSize=20
+            delta=None
         )
     
     st.divider()
@@ -395,7 +401,7 @@ if user_input or send_button:
                 st.session_state.resolved_count += 1
                 
             except Exception as e:
-                error_message = f"⚠️ Error communicating with AI: {str(e)}"
+                error_message = f"⚠️ Error: {str(e)}"
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": error_message
@@ -437,7 +443,7 @@ st.markdown("""
 ---
 ### ℹ️ About This Chatbot
 
-This Office Helpdesk Chatbot is powered by advanced AI and provides:
+This Office Helpdesk Chatbot is powered by Claude AI and provides:
 - **Instant support** for common IT issues
 - **Step-by-step guidance** for troubleshooting
 - **Quick category shortcuts** for faster assistance
@@ -459,30 +465,26 @@ if st.checkbox("📈 Show Advanced Analytics", value=False):
     with analytics_col1:
         st.metric(
             label="Total Messages",
-            value=len(st.session_state.messages),
-            fontWeight="bold"
+            value=len(st.session_state.messages)
         )
     
     with analytics_col2:
         resolution_rate = (st.session_state.resolved_count / max(st.session_state.issue_count, 1)) * 100
         st.metric(
             label="Resolution Rate",
-            value=f"{resolution_rate:.1f}%",
-            fontWeight="bold"
+            value=f"{resolution_rate:.1f}%"
         )
     
     with analytics_col3:
         avg_response_time = "< 1s"
         st.metric(
             label="Avg Response Time",
-            value=avg_response_time,
-            fontWeight="bold"
+            value=avg_response_time
         )
     
     with analytics_col4:
         session_duration = (datetime.now() - st.session_state.session_start_time).seconds // 60
         st.metric(
             label="Session Duration",
-            value=f"{session_duration} min",
-            fontWeight="bold"
+            value=f"{session_duration} min"
         )
