@@ -1,6 +1,6 @@
 # officebuddy_main.py
 import streamlit as st
-from flows import FLOWS, start_flow, get_next_step
+from flows import FLOWS, get_next_step
 from kb_utils import upload_policies, search_kb
 import datetime as dt
 
@@ -42,12 +42,14 @@ def bot_reply(text):
     
     # Commands
     if text_lower in ["/help", "help"]:
-        return ("I can help with:\n"
-                "- Raise a ticket: type 'raise ticket'\n"
-                "- Leave request: type 'leave request'\n"
-                "- Draft email: type 'draft email'\n"
-                "- Policy questions: type your question after uploading policy files\n"
-                "- Commands: /cancel, /clear")
+        return (
+            "I can help with:\n"
+            "- Raise a ticket: type 'raise ticket'\n"
+            "- Leave request: type 'leave request'\n"
+            "- Draft email: type 'draft email'\n"
+            "- Policy questions: type your question after uploading policy files\n"
+            "- Commands: /cancel, /clear"
+        )
     if text_lower == "/cancel":
         st.session_state.active_flow = None
         st.session_state.flow_data = {}
@@ -61,7 +63,9 @@ def bot_reply(text):
         flow_key = st.session_state.active_flow
         step = get_next_step(FLOWS[flow_key], st.session_state.flow_data)
         if step:
+            # Save user answer
             st.session_state.flow_data[step.field] = text
+            # Get next step
             step = get_next_step(FLOWS[flow_key], st.session_state.flow_data)
             if step:
                 return step.prompt
