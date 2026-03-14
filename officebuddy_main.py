@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import streamlit as st
 
@@ -41,7 +41,7 @@ def inject_css(theme: str) -> None:
   --ink: #0b1220;
   --muted: #6B7280;
   --stroke: rgba(17,24,39,0.10);
-  --card: rgba(255,255,255,0.82);
+  --card: rgba(255,255,255,0.86);
   --shadow: 0 12px 32px rgba(0,0,0,0.10);
 }}
 
@@ -50,7 +50,7 @@ def inject_css(theme: str) -> None:
     radial-gradient(1100px 560px at 18% 12%, rgba(134,188,37,0.20), transparent 60%),
     radial-gradient(900px 520px at 82% 6%, rgba(0,124,176,0.18), transparent 55%),
     radial-gradient(900px 600px at 60% 86%, rgba(255,209,0,0.16), transparent 60%),
-    linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.96));
+    linear-gradient(180deg, rgba(255,255,255,0.90), rgba(255,255,255,0.97));
 }}
 
 .block-container {{
@@ -86,7 +86,7 @@ def inject_css(theme: str) -> None:
   padding: .25rem .6rem;
   border-radius: 999px;
   border: 1px solid var(--stroke);
-  background: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.78);
   font-size: 0.86rem;
   color: var(--ink);
 }}
@@ -113,7 +113,7 @@ div.stButton > button[kind="primary"]:active {{
 
 .card {{
   border: 1px solid var(--stroke);
-  background: rgba(255,255,255,0.86);
+  background: rgba(255,255,255,0.90);
   border-radius: 16px;
   padding: .9rem 1rem;
   box-shadow: 0 10px 24px rgba(0,0,0,0.06);
@@ -132,7 +132,7 @@ div.stButton > button[kind="primary"]:active {{
 
 
 # ----------------------------
-# DB (best-effort persistence)
+# SQLite (best-effort persistence)
 # ----------------------------
 DB_PATH = str(Path(__file__).resolve().parent / "helpdesk.db")
 
@@ -165,30 +165,6 @@ class Ticket:
     status: str
 
 
-def now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M")
-
-
-def new_ticket_id() -> str:
-    return f"HD-{uuid.uuid4().hex[:8].upper()}"
-
-
-def ticket_insert_sqlite(t: Ticket) -> bool:
-    try:
-        conn = db()
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO tickets(ticket_id, created_at, category, urgency, summary, status)
-            VALUES(?, ?, ?, ?, ?, ?)
-            """,
-            (t.ticket_id, t.created_at, t.category, t.urgency, t.summary, t.status),
-        )
-        conn.commit()
-        return True
-    except Exception:
-        return False
-
-
 def tickets_load_sqlite(limit: int = 200) -> List[Ticket]:
     try:
         conn = db()
@@ -208,6 +184,22 @@ def tickets_load_sqlite(limit: int = 200) -> List[Ticket]:
         return []
 
 
+def ticket_insert_sqlite(t: Ticket) -> bool:
+    try:
+        conn = db()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO tickets(ticket_id, created_at, category, urgency, summary, status)
+            VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            (t.ticket_id, t.created_at, t.category, t.urgency, t.summary, t.status),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        return False
+
+
 def ticket_update_status_sqlite(ticket_id: str, status: str) -> None:
     try:
         conn = db()
@@ -218,8 +210,16 @@ def ticket_update_status_sqlite(ticket_id: str, status: str) -> None:
 
 
 # ----------------------------
-# Simple category classifier (no API)
+# Helpers
 # ----------------------------
+def now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def new_ticket_id() -> str:
+    return f"HD-{uuid.uuid4().hex[:8].upper()}"
+
+
 def classify_category(text: str) -> str:
     t = text.lower()
     if any(k in t for k in ["password", "locked", "lockout", "reset", "login"]):
@@ -257,89 +257,6 @@ def quick_steps(category: str) -> str:
     return "Share the exact error text and what changed recently."
 
 
-# ----------------------------
-# Session state (THIS guarantees Tickets tab updates immediately)
-# ----------------------------
-def ensure_state() -> None:
-    if "theme" not in st.session_state:
-        st.session_state.theme = "Playful Pastel"
-    if "profile" not in st.session_state:
-        st.session_state.profile = {"name": "", "device": "", "os": "", "location": ""}
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": (
-                    "Hi! I’m your **Office Helpdesk Buddy** 🛠️\n\n"
-                    "Describe the issue (or use quick buttons). If needed, click **Create ticket** and it will show in the Tickets tab."
-                ),
-            }
-        ]
-    if "tickets" not in st.session_state:
-        # Load once from SQLite; after that, we treat session_state as the source of truth for UI
-        st.session_state.tickets = tickets_load_sqlite()
-    if "last_created_ticket_id" not in st.session_state:
-        st.session_state.last_created_ticket_id = None
-    if "last_persist_ok" not in st.session_state:
-        st.session_state.last_persist_ok = True
-
-
-ensure_state()
-inject_css(st.session_state.theme)
-
-
-# ----------------------------
-# Sidebar
-# ----------------------------
-with st.sidebar:
-    st.markdown("### 🎛️ Settings")
-    st.session_state.theme = st.selectbox(
-        "Theme", ["Playful Pastel", "Neon Pop"], index=0 if st.session_state.theme == "Playful Pastel" else 1
-    )
-    inject_css(st.session_state.theme)
-
-    st.markdown("---")
-    st.markdown("### 👤 Context (optional)")
-    st.session_state.profile["name"] = st.text_input("Name", value=st.session_state.profile["name"], placeholder="e.g., Asha")
-    st.session_state.profile["device"] = st.text_input("Device", value=st.session_state.profile["device"], placeholder="e.g., Dell 7420")
-    st.session_state.profile["os"] = st.selectbox("OS", ["", "Windows", "macOS", "Linux", "iOS", "Android"], index=0)
-    st.session_state.profile["location"] = st.text_input("Location", value=st.session_state.profile["location"], placeholder="e.g., NYC Office")
-
-    st.markdown("---")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("↻ Reload tickets", use_container_width=True):
-            st.session_state.tickets = tickets_load_sqlite()
-            st.toast("Reloaded from disk", icon="📥")
-            st.rerun()
-    with c2:
-        if st.button("🧹 Clear chat", use_container_width=True):
-            st.session_state.messages = st.session_state.messages[:1]
-            st.toast("Chat cleared", icon="🧽")
-            st.rerun()
-
-    st.caption(f"Tickets in session: {len(st.session_state.tickets)}")
-
-
-# ----------------------------
-# Header
-# ----------------------------
-name = st.session_state.profile.get("name") or "there"
-st.markdown(
-    f"""
-<div class="hero">
-  <div class="badge">🏢 <b>Office Helpdesk</b> • Fast help • Friendly tickets</div>
-  <h2 style="margin:.6rem 0 .15rem 0;">Welcome, {name} 👋</h2>
-  <div class="small-muted">Quick fixes first. If it’s tricky, file a clean ticket and download it anytime.</div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-st.write("")
-
-tab_chat, tab_tickets = st.tabs(["💬 Chat", "🎫 Tickets"])
-
-
 def context_line() -> str:
     p = st.session_state.profile
     bits = []
@@ -352,13 +269,26 @@ def context_line() -> str:
     return ", ".join(bits)
 
 
-def assistant_typing(delay_s: float = 0.16) -> None:
+def assistant_typing(delay_s: float = 0.14) -> None:
     with st.chat_message("assistant"):
         ph = st.empty()
         for dots in ["", ".", "..", "..."]:
             ph.markdown(f"Thinking{dots}")
             time.sleep(delay_s)
         ph.empty()
+
+
+def tickets_to_csv_bytes(tickets: List[Ticket]) -> bytes:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["ticket_id", "created_at", "category", "urgency", "status", "summary"])
+    for t in tickets:
+        w.writerow([t.ticket_id, t.created_at, t.category, t.urgency, t.status, t.summary])
+    return buf.getvalue().encode("utf-8")
+
+
+def tickets_to_json_bytes(tickets: List[Ticket]) -> bytes:
+    return json.dumps([asdict(t) for t in tickets], indent=2).encode("utf-8")
 
 
 def create_ticket(summary: str, urgency: str) -> Ticket:
@@ -377,28 +307,113 @@ def create_ticket(summary: str, urgency: str) -> Ticket:
         status="Open",
     )
 
-    # 1) Always update UI source-of-truth immediately:
+    # Always update UI immediately (Tickets tab reads this)
     st.session_state.tickets.insert(0, t)
     st.session_state.last_created_ticket_id = t.ticket_id
 
-    # 2) Best-effort persistence:
+    # Best-effort disk save
     st.session_state.last_persist_ok = ticket_insert_sqlite(t)
-
     return t
 
 
-def tickets_to_csv_bytes(tickets: List[Ticket]) -> bytes:
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["ticket_id", "created_at", "category", "urgency", "status", "summary"])
-    for t in tickets:
-        w.writerow([t.ticket_id, t.created_at, t.category, t.urgency, t.status, t.summary])
-    return buf.getvalue().encode("utf-8")
+# ----------------------------
+# Session state (UI source of truth)
+# ----------------------------
+def ensure_state() -> None:
+    if "theme" not in st.session_state:
+        st.session_state.theme = "Playful Pastel"
+
+    if "profile" not in st.session_state:
+        st.session_state.profile = {"name": "", "device": "", "os": "", "location": ""}
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Hi! I’m your **Office Helpdesk Buddy** 🛠️\n\n"
+                    "Describe the issue, and I’ll suggest quick steps. "
+                    "When you want to file it, type **create ticket**."
+                ),
+            }
+        ]
+
+    if "tickets" not in st.session_state:
+        st.session_state.tickets = tickets_load_sqlite()
+
+    if "show_ticket_form" not in st.session_state:
+        st.session_state.show_ticket_form = False
+
+    if "draft_ticket_summary" not in st.session_state:
+        st.session_state.draft_ticket_summary = ""
+
+    if "draft_urgency" not in st.session_state:
+        st.session_state.draft_urgency = "med"
+
+    if "last_created_ticket_id" not in st.session_state:
+        st.session_state.last_created_ticket_id = None
+
+    if "last_persist_ok" not in st.session_state:
+        st.session_state.last_persist_ok = True
 
 
-def tickets_to_json_bytes(tickets: List[Ticket]) -> bytes:
-    payload = [asdict(t) for t in tickets]
-    return json.dumps(payload, indent=2).encode("utf-8")
+ensure_state()
+inject_css(st.session_state.theme)
+
+
+# ----------------------------
+# Sidebar
+# ----------------------------
+with st.sidebar:
+    st.markdown("### 🎛️ Settings")
+    st.session_state.theme = st.selectbox(
+        "Theme",
+        ["Playful Pastel", "Neon Pop"],
+        index=0 if st.session_state.theme == "Playful Pastel" else 1,
+    )
+    inject_css(st.session_state.theme)
+
+    st.markdown("---")
+    st.markdown("### 👤 Context (optional)")
+    st.session_state.profile["name"] = st.text_input("Name", value=st.session_state.profile["name"], placeholder="e.g., Asha")
+    st.session_state.profile["device"] = st.text_input("Device", value=st.session_state.profile["device"], placeholder="e.g., Dell 7420")
+    st.session_state.profile["os"] = st.selectbox("OS", ["", "Windows", "macOS", "Linux", "iOS", "Android"], index=0)
+    st.session_state.profile["location"] = st.text_input("Location", value=st.session_state.profile["location"], placeholder="e.g., NYC Office")
+
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("↻ Reload", use_container_width=True):
+            st.session_state.tickets = tickets_load_sqlite()
+            st.toast("Reloaded tickets", icon="📥")
+            st.rerun()
+    with c2:
+        if st.button("🧹 Clear chat", use_container_width=True):
+            st.session_state.messages = st.session_state.messages[:1]
+            st.session_state.show_ticket_form = False
+            st.toast("Chat cleared", icon="🧽")
+            st.rerun()
+
+    st.caption(f"Tickets now: {len(st.session_state.tickets)}")
+
+
+# ----------------------------
+# Header + Tabs
+# ----------------------------
+name = st.session_state.profile.get("name") or "there"
+st.markdown(
+    f"""
+<div class="hero">
+  <div class="badge">🏢 <b>Office Helpdesk</b> • Fast help • Friendly tickets</div>
+  <h2 style="margin:.6rem 0 .15rem 0;">Welcome, {name} 👋</h2>
+  <div class="small-muted">Type <b>create ticket</b> whenever you want to file it.</div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+st.write("")
+
+tab_chat, tab_tickets = st.tabs(["💬 Chat", "🎫 Tickets"])
 
 
 # ----------------------------
@@ -414,7 +429,7 @@ with tab_chat:
         ("🧩 Software", "Software"),
         ("🎣 Phishing", "Security (Phishing)"),
     ]
-    clicked = None
+    clicked: Optional[str] = None
     for (label, cat), col in zip(quick, [c1, c2, c3, c4, c5]):
         if col.button(label, use_container_width=True):
             clicked = cat
@@ -423,58 +438,121 @@ with tab_chat:
         st.session_state.messages.append({"role": "user", "content": f"[Quick action] {clicked}"})
         assistant_typing()
         st.session_state.messages.append(
-            {"role": "assistant", "content": f"Got it: **{clicked}**.\n\n{quick_steps(clicked)}\n\nIf needed, use **Create ticket** below."}
+            {
+                "role": "assistant",
+                "content": f"Got it: **{clicked}**.\n\n{quick_steps(clicked)}\n\nIf you want to file it: type **create ticket**.",
+            }
         )
         st.rerun()
 
     st.divider()
 
-    # Ticket form (the button you asked for)
-    st.markdown("#### 🎫 Create ticket")
-    with st.form("ticket_form", clear_on_submit=True):
-        summary = st.text_area("Issue summary", placeholder="e.g., VPN error 809 on Windows at home Wi‑Fi")
-        urgency = st.radio("Urgency", ["low", "med", "high"], horizontal=True, index=1)
-        submitted = st.form_submit_button("Create ticket", type="primary")
+    # Ticket form appears ONLY when user typed "create ticket"
+    if st.session_state.show_ticket_form:
+        st.markdown("#### 🎫 Ticket creator")
+        st.info("Fill this out, submit, and it will appear in the **Tickets** tab.")
 
-    if submitted:
-        seed = summary.strip()
-        if not seed:
-            seed = "General help needed"
-        t = create_ticket(seed, urgency)
-        st.toast(f"Created {t.ticket_id}", icon="🎉")
+        with st.form("ticket_form", clear_on_submit=False):
+            summary = st.text_area(
+                "Issue summary",
+                value=st.session_state.draft_ticket_summary,
+                placeholder="e.g., VPN error 809 on Windows at home Wi‑Fi",
+            )
+            urgency = st.radio(
+                "Urgency",
+                ["low", "med", "high"],
+                index=["low", "med", "high"].index(st.session_state.draft_urgency),
+                horizontal=True,
+            )
 
-        # Add to chat history too
-        st.session_state.messages.append({"role": "user", "content": f"[Ticket] {seed} (urgency: {urgency})"})
-        assistant_typing()
-        persist_note = "" if st.session_state.last_persist_ok else "\n\nNote: Couldn’t save to disk, but it’s visible in Tickets now."
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": (
-                    f"Ticket **{t.ticket_id}** created.\n\n"
-                    f"- Category: **{t.category}**\n"
-                    f"- Status: **{t.status}**\n\n"
-                    "Open the **Tickets** tab to view/download."
-                    f"{persist_note}"
-                ),
-            }
-        )
-        st.rerun()
+            left, right = st.columns(2)
+            with left:
+                create_pressed = st.form_submit_button("Create ticket", type="primary")
+            with right:
+                cancel_pressed = st.form_submit_button("Cancel")
 
-    st.markdown("#### 💬 Chat")
+        if cancel_pressed:
+            st.session_state.show_ticket_form = False
+            st.session_state.draft_ticket_summary = ""
+            st.session_state.draft_urgency = "med"
+            st.toast("Canceled", icon="🧽")
+            st.rerun()
+
+        if create_pressed:
+            seed = summary.strip() or "General help needed"
+            st.session_state.draft_ticket_summary = seed
+            st.session_state.draft_urgency = urgency
+
+            t = create_ticket(seed, urgency)
+
+            st.session_state.messages.append({"role": "user", "content": f"[Ticket request] {seed} (urgency: {urgency})"})
+            assistant_typing()
+            persist_note = "" if st.session_state.last_persist_ok else "\n\nNote: Saved in-session; disk save didn’t work."
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        f"Ticket **{t.ticket_id}** created 🎉\n\n"
+                        f"- Category: **{t.category}**\n"
+                        f"- Status: **{t.status}**\n\n"
+                        "Go to the **Tickets** tab to view and download it."
+                        f"{persist_note}"
+                    ),
+                }
+            )
+
+            # Hide form after creation (as requested)
+            st.session_state.show_ticket_form = False
+            st.session_state.draft_ticket_summary = ""
+            st.session_state.draft_urgency = "med"
+            st.rerun()
+
+        st.divider()
+
+    # Render chat history
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
 
-    user_text = st.chat_input("Describe your issue…")
+    # Chat input
+    user_text = st.chat_input("Describe your issue… (type 'create ticket' to file)")
     if user_text:
         st.session_state.messages.append({"role": "user", "content": user_text})
-        assistant_typing()
-        cat = classify_category(user_text)
-        st.session_state.messages.append(
-            {"role": "assistant", "content": f"This looks like **{cat}**.\n\n{quick_steps(cat)}\n\nIf you want, create a ticket above."}
-        )
-        st.rerun()
+        lower = user_text.lower().strip()
+
+        if lower.startswith("create ticket"):
+            # Allow: "create ticket: VPN error 809 ..."
+            remainder = user_text[len("create ticket") :].strip(" :-\n\t")
+            seed = remainder.strip()
+
+            # If no remainder, use last non-command user message
+            if not seed:
+                for msg in reversed(st.session_state.messages[:-1]):
+                    if msg["role"] == "user":
+                        txt = msg["content"].strip()
+                        if not txt.lower().startswith("create ticket") and not txt.startswith("[Quick action]"):
+                            seed = txt
+                            break
+
+            st.session_state.draft_ticket_summary = seed
+            st.session_state.show_ticket_form = True
+
+            assistant_typing()
+            st.session_state.messages.append(
+                {"role": "assistant", "content": "Ticket creator opened above. Add details and click **Create ticket**."}
+            )
+            st.rerun()
+
+        else:
+            assistant_typing()
+            cat = classify_category(user_text)
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": f"This looks like **{cat}**.\n\n{quick_steps(cat)}\n\nWhen you’re ready to file it, type **create ticket**.",
+                }
+            )
+            st.rerun()
 
 
 # ----------------------------
@@ -487,11 +565,9 @@ with tab_tickets:
         st.success(f"Latest ticket: {st.session_state.last_created_ticket_id}")
 
     tickets = st.session_state.tickets
-
     if not tickets:
-        st.info("No tickets yet. Create one in the Chat tab.")
+        st.info("No tickets yet. In Chat, type **create ticket**.")
     else:
-        # Downloads
         dl1, dl2 = st.columns(2)
         with dl1:
             st.download_button(
@@ -512,7 +588,6 @@ with tab_tickets:
 
         st.write("")
 
-        # Filters
         f1, f2 = st.columns([2, 1])
         with f1:
             q = st.text_input("Search", placeholder="Search by ID / keyword")
@@ -550,8 +625,8 @@ with tab_tickets:
         st.markdown("#### 🛠️ Update status")
         pick = st.selectbox("Ticket ID", [t.ticket_id for t in tickets], index=0)
         new_status = st.selectbox("New status", ["Open", "In Progress", "Waiting on User", "Resolved"], index=0)
+
         if st.button("Update", type="primary"):
-            # Update session tickets
             for i, t in enumerate(st.session_state.tickets):
                 if t.ticket_id == pick:
                     st.session_state.tickets[i] = Ticket(
@@ -563,7 +638,7 @@ with tab_tickets:
                         status=new_status,
                     )
                     break
-            # Best-effort persist
+
             ticket_update_status_sqlite(pick, new_status)
             st.toast(f"{pick} → {new_status}", icon="✅")
             st.rerun()
