@@ -1,32 +1,32 @@
 # kb_utils.py
-from typing import List
-import streamlit as st
+import re
 
-def upload_policies() -> List[str]:
-    st.sidebar.subheader("Upload HR/IT Policies (TXT/MD)")
-    files = st.sidebar.file_uploader(
-        "Upload .txt or .md files", 
-        type=["txt","md"], 
-        accept_multiple_files=True
-    )
-    texts = []
-    if files:
-        for f in files:
-            try:
-                texts.append(f.read().decode("utf-8", errors="ignore"))
-            except:
-                continue
-        st.sidebar.success(f"Loaded {len(texts)} file(s)")
-    return texts
+STOPWORDS = {"the","a","an","and","or","to","for","of","in","on","at","is","are","am","with","by","from","this","that","it","as","be","we","you","i","our","your","please","pls","plz","can","could","would","need","want","help","me","my","hi","hello","hey","thanks","thank"}
 
-def search_kb(query: str, kb_texts: List[str], top_k: int=3) -> str:
-    query = query.lower()
+def normalize(text: str) -> str:
+    text = (text or "").lower().strip()
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+def tokenize(text: str) -> set:
+    words = set(normalize(text).split())
+    return {w for w in words if len(w) >= 3 and w not in STOPWORDS}
+
+def upload_policies(files):
+    docs = []
+    for f in files:
+        content = f.read().decode("utf-8", errors="ignore")
+        docs.append(content)
+    return docs
+
+def search_kb(docs, query, top_k=3):
+    q = tokenize(query)
+    if not q:
+        return []
     results = []
-    for txt in kb_texts:
-        if query in txt.lower():
-            results.append(txt[:1000])  # return first 1000 chars as snippet
-            if len(results) >= top_k:
-                break
-    if results:
-        return "\n\n---\n\n".join(results)
-    return ""
+    for d in docs:
+        tokens = tokenize(d)
+        if q & tokens:
+            results.append(d)
+    return results[:top_k]
