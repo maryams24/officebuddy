@@ -1,111 +1,110 @@
 # officebuddy_main.py
 import streamlit as st
-import datetime as dt
-from flows import FLOWS, get_next_step, start_flow
+from flows import FLOWS, start_flow, get_next_step
 from kb_utils import upload_policies, search_kb
+import datetime as dt
 
 # =========================
-# Page setup
-st.set_page_config(page_title="OfficeBuddy", layout="centered")
-st.title("OfficeBuddy • Office Helper Chatbot")
-st.write("I help with tickets, leave requests, emails, and HR/IT policies. Type /help for guidance.")
+# Page config
+st.set_page_config(page_title="OfficeBuddy • Office Helpdesk Bot", layout="centered")
+
+st.title("OfficeBuddy • Office Helpdesk Bot")
+st.write("Hi! I can help with tickets, leave requests, email templates, and policy questions.")
+st.write("Type /help for guidance.")
 
 # =========================
-# Session state
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
+# Session state init
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
 if "active_flow" not in st.session_state:
-    st.session_state.active_flow = None
-
+    st.session_state["active_flow"] = None
 if "flow_data" not in st.session_state:
-    st.session_state.flow_data = {}
+    st.session_state["flow_data"] = {}
+if "kb_docs" not in st.session_state:
+    st.session_state["kb_docs"] = []
 
 # =========================
-# Upload KB files
-kb_texts = upload_policies()
-
-# =========================
-# Flow helpers
-def start_flow(flow_name):
-    st.session_state.active_flow = flow_name
-    st.session_state.flow_data = {}
-
-def get_next_step(flow):
-    for step in flow.steps:
-        if step.field not in st.session_state.flow_data:
-            return step
-    return None
+# Sidebar: upload policy files
+st.sidebar.subheader("Upload policies/FAQs")
+uploaded_files = st.sidebar.file_uploader(
+    "Upload .txt or .md", type=["txt", "md"], accept_multiple_files=True
+)
+if uploaded_files:
+    st.session_state.kb_docs = upload_policies(uploaded_files)
+    st.sidebar.success(f"Loaded {len(uploaded_files)} file(s)")
 
 # =========================
 # Chat input
-user_input = st.text_input("You:", key="input_text")
+user_text = st.chat_input("Ask anything office-related (e.g., raise a ticket, leave request)")
 
-if user_input:
-    ts = dt.datetime.now().strftime("%H:%M")
-    reply = ""
-
+def bot_reply(text):
+    text_lower = text.lower().strip()
+    
     # Commands
-    if user_input.lower() in ["/help", "help"]:
-        reply = ("Try:\n"
-                 "- raise ticket\n"
-                 "- leave request\n"
-                 "- draft email\n"
-                 "- ask HR/IT policy questions (after uploading files)\n"
-                 "Type /cancel to stop any active task.")
-    elif user_input.lower() == "/cancel":
+    if text_lower in ["/help", "help"]:
+        return ("I can help with:\n"
+                "- Raise a ticket: type 'raise ticket'\n"
+                "- Leave request: type 'leave request'\n"
+                "- Draft email: type 'draft email'\n"
+                "- Policy questions: type your question after uploading policy files\n"
+                "- Commands: /cancel, /clear")
+    if text_lower == "/cancel":
         st.session_state.active_flow = None
         st.session_state.flow_data = {}
-        reply = "Active task cancelled."
-
+        return "Flow cancelled."
+    if text_lower == "/clear":
+        st.session_state.messages = []
+        return "Chat cleared."
+    
     # Active flow
-    elif st.session_state.active_flow:
-        flow = FLOWS[st.session_state.active_flow]
-        step = get_next_step(flow)
+    if st.session_state.active_flow:
+        flow_key = st.session_state.active_flow
+        step = get_next_step(FLOWS[flow_key], st.session_state.flow_data)
         if step:
-            st.session_state.flow_data[step.field] = user_input
-            next_step = get_next_step(flow)
-            if next_step:
-                reply = f"{next_step.prompt} {'(required)' if next_step.required else '(optional)'}"
+            st.session_state.flow_data[step.field] = text
+            step = get_next_step(FLOWS[flow_key], st.session_state.flow_data)
+            if step:
+                return step.prompt
             else:
-                # Flow complete
-                data = st.session_state.flow_data
-                result_lines = [f"{k}: {v}" for k, v in data.items()]
-                reply = f"✅ {flow.name} completed:\n" + "\n".join(result_lines)
+                # Flow done
                 st.session_state.active_flow = None
-                st.session_state.flow_data = {}
-    # Policy search
-    elif "policy" in user_input.lower() and kb_texts:
-        kb_result = search_kb(user_input, kb_texts)
-        reply = kb_result or "No matching policy found."
-
+                return FLOWS[flow_key].formatter(st.session_state.flow_data)
+    
     # Start flows
-    elif "raise ticket" in user_input.lower():
-        start_flow("ticket")
-        first_step = get_next_step(FLOWS["ticket"])
-        reply = f"Let’s raise a ticket.\n{first_step.prompt} (required)"
-
-    elif "leave request" in user_input.lower():
-        start_flow("leave")
-        first_step = get_next_step(FLOWS["leave"])
-        reply = f"Let’s submit a leave request.\n{first_step.prompt} (required)"
-
-    elif "draft email" in user_input.lower() or "write email" in user_input.lower():
-        start_flow("email")
-        first_step = get_next_step(FLOWS["email"])
-        reply = f"Let’s draft an email.\n{first_step.prompt} (required)"
-
-    else:
-        reply = "I can help with tickets, leave requests, emails, and policies. Type /help for guidance."
-
-    # Store chat
-    st.session_state.chat_history.append({"role": "user", "text": user_input, "ts": ts})
-    st.session_state.chat_history.append({"role": "assistant", "text": reply, "ts": ts})
+    if "raise ticket" in text_lower:
+        st.session_state.active_flow = "ticket"
+        st.session_state.flow_data = {s.field: "" for s in FLOWS["ticket"].steps}
+        return get_next_step(FLOWS["ticket"], st.session_state.flow_data).prompt
+    
+    if "leave request" in text_lower:
+        st.session_state.active_flow = "leave"
+        st.session_state.flow_data = {s.field: "" for s in FLOWS["leave"].steps}
+        return get_next_step(FLOWS["leave"], st.session_state.flow_data).prompt
+    
+    if "draft email" in text_lower:
+        st.session_state.active_flow = "email"
+        st.session_state.flow_data = {s.field: "" for s in FLOWS["email"].steps}
+        return get_next_step(FLOWS["email"], st.session_state.flow_data).prompt
+    
+    # KB search
+    if st.session_state.kb_docs:
+        hits = search_kb(st.session_state.kb_docs, text)
+        if hits:
+            return "\n\n".join(hits)
+    
+    return "I can help with office tasks: tickets, leave, email templates, policy questions. Type /help."
 
 # =========================
 # Display chat
-for chat in st.session_state.chat_history:
-    if chat["role"] == "user":
-        st.markdown(f"**You ({chat['ts']}):** {chat['text']}")
+if user_text:
+    st.session_state.messages.append({"role": "user", "text": user_text})
+    reply = bot_reply(user_text)
+    st.session_state.messages.append({"role": "bot", "text": reply})
+
+for msg in st.session_state.messages:
+    if msg["role"] == "user":
+        with st.chat_message("user"):
+            st.markdown(msg["text"])
     else:
-        st.markdown(f"**OfficeBuddy ({chat['ts']}):** {chat['text']}")
+        with st.chat_message("assistant"):
+            st.markdown(msg["text"])
