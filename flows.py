@@ -78,7 +78,7 @@ FLOWS = {
 
 # =========================
 # Helper to get the next unanswered step
-def get_next_step(flow: Flow, data: dict) -> Optional[Step]:
+def get_next_step(flow: Flow, data: dict):
     for step in flow.steps:
         if not data.get(step.field):
             return step
