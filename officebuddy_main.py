@@ -2,7 +2,6 @@ import streamlit as st
 import sqlite3
 import uuid
 import pandas as pd
-import json
 from datetime import datetime
 
 st.set_page_config(page_title="Office Helpdesk Bot", page_icon="🛠️")
@@ -49,29 +48,39 @@ solutions = {
 
 "Software":"🔹 Request install access from IT",
 
-"General":"Please provide more details"
+"General":"Provide more details"
 }
 
-# ---------------- DATABASE ----------------
+# ---------------- DATABASE INIT ----------------
 
-conn = sqlite3.connect("helpdesk.db",check_same_thread=False)
-cursor = conn.cursor()
+def init_db():
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS tickets(
-ticket_id TEXT,
-time TEXT,
-category TEXT,
-issue TEXT,
-status TEXT
-)
-""")
+    conn = sqlite3.connect("helpdesk.db")
 
-conn.commit()
+    cursor = conn.cursor()
 
-# ---------------- FUNCTIONS ----------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tickets(
+    ticket_id TEXT,
+    time TEXT,
+    category TEXT,
+    issue TEXT,
+    status TEXT
+    )
+    """)
+
+    conn.commit()
+
+    conn.close()
+
+init_db()
+
+# ---------------- CREATE TICKET ----------------
 
 def create_ticket(issue,category):
+
+    conn = sqlite3.connect("helpdesk.db")
+    cursor = conn.cursor()
 
     ticket_id="HD-"+uuid.uuid4().hex[:6].upper()
 
@@ -83,16 +92,31 @@ def create_ticket(issue,category):
     )
 
     conn.commit()
+    conn.close()
 
     return ticket_id
 
+# ---------------- LOAD TICKETS ----------------
+
 def load_tickets():
 
-    cursor.execute("SELECT * FROM tickets ORDER BY time DESC")
+    conn = sqlite3.connect("helpdesk.db")
 
-    return cursor.fetchall()
+    df = pd.read_sql_query(
+        "SELECT * FROM tickets ORDER BY time DESC",
+        conn
+    )
+
+    conn.close()
+
+    return df
+
+# ---------------- UPDATE STATUS ----------------
 
 def update_status(ticket_id,status):
+
+    conn = sqlite3.connect("helpdesk.db")
+    cursor = conn.cursor()
 
     cursor.execute(
     "UPDATE tickets SET status=? WHERE ticket_id=?",
@@ -100,6 +124,7 @@ def update_status(ticket_id,status):
     )
 
     conn.commit()
+    conn.close()
 
 # ---------------- CHATBOT ----------------
 
@@ -139,7 +164,7 @@ if st.button("🎫 Create Ticket"):
 
     else:
 
-        st.warning("Please describe your issue first.")
+        st.warning("Please describe issue first")
 
 # ---------------- DASHBOARD ----------------
 
@@ -147,20 +172,15 @@ st.divider()
 
 st.subheader("📊 Ticket Dashboard")
 
-tickets=load_tickets()
-
-df=pd.DataFrame(
-tickets,
-columns=["Ticket ID","Time","Category","Issue","Status"]
-)
+df=load_tickets()
 
 # ---- STATS ----
 
 col1,col2,col3=st.columns(3)
 
-col1.metric("🟡 Open",len(df[df["Status"]=="Open"]))
-col2.metric("🔵 In Progress",len(df[df["Status"]=="In Progress"]))
-col3.metric("🟢 Resolved",len(df[df["Status"]=="Resolved"]))
+col1.metric("🟡 Open",len(df[df["status"]=="Open"]))
+col2.metric("🔵 In Progress",len(df[df["status"]=="In Progress"]))
+col3.metric("🟢 Resolved",len(df[df["status"]=="Resolved"]))
 
 # ---- FILTER ----
 
@@ -170,7 +190,7 @@ status_filter=st.selectbox(
 )
 
 if status_filter!="All":
-    df=df[df["Status"]==status_filter]
+    df=df[df["status"]==status_filter]
 
 st.dataframe(df)
 
@@ -178,7 +198,7 @@ st.dataframe(df)
 
 st.subheader("🔧 Update Ticket Status")
 
-ticket_ids=df["Ticket ID"].tolist()
+ticket_ids=df["ticket_id"].tolist()
 
 if ticket_ids:
 
@@ -193,9 +213,9 @@ if ticket_ids:
 
         update_status(selected_ticket,new_status)
 
-        st.success("Ticket status updated")
+        st.success("Status updated")
 
-        st.experimental_rerun()
+        st.rerun()
 
 # ---------------- DOWNLOAD ----------------
 
@@ -204,7 +224,7 @@ st.subheader("⬇ Download Tickets")
 csv=df.to_csv(index=False)
 
 st.download_button(
-"📥 Download CSV (Excel)",
+"📥 Download CSV",
 csv,
 "tickets.csv",
 "text/csv"
