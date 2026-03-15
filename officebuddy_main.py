@@ -1,93 +1,85 @@
 import streamlit as st
 import sqlite3
 import uuid
-from datetime import datetime
+import pandas as pd
 import json
-import csv
-import io
+from datetime import datetime
 
-st.set_page_config(page_title="Office Helpdesk Bot", page_icon="🛠️")
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
 
-# ---------------- UI STYLE ----------------
+st.set_page_config(page_title="Office Helpdesk Bot",page_icon="🛠️")
 
-st.markdown("""
-<style>
-.stApp {
-background: linear-gradient(120deg,#eef2ff,#f0fdf4);
-}
+st.title("🛠️ Office Helpdesk NLP Helpdesk")
 
-.ticket-card{
-padding:12px;
-border-radius:10px;
-background:#ffffff;
-border:1px solid #e5e7eb;
-margin-bottom:10px;
-}
+# ---------------- NLP DATA ----------------
 
-</style>
-""",unsafe_allow_html=True)
+texts=[
+"cannot login",
+"password not working",
+"account locked",
+"vpn not connecting",
+"vpn disconnected",
+"internet slow",
+"wifi not working",
+"printer not printing",
+"printer offline",
+"suspicious email",
+"phishing mail",
+"cannot install software",
+"software problem"
+]
 
-# ---------------- NLP TRAINING DATA ----------------
+labels=[
+"Access",
+"Access",
+"Access",
+"VPN",
+"VPN",
+"WiFi",
+"WiFi",
+"Printer",
+"Printer",
+"Phishing",
+"Phishing",
+"Software",
+"Software"
+]
 
-training_data={
-"Access":["cannot login","password not working","account locked","login problem"],
-"VPN":["vpn not connecting","vpn error","vpn disconnected"],
-"WiFi":["wifi not working","internet slow","network disconnected"],
-"Printer":["printer not printing","printer offline"],
-"Software":["cannot install software","software issue"],
-"Phishing":["suspicious email","phishing email"]
-}
+vectorizer=CountVectorizer()
 
-# ---------------- NLP CLASSIFIER ----------------
+X=vectorizer.fit_transform(texts)
 
-def predict_category(text):
+model=MultinomialNB()
 
-    text=text.lower()
+model.fit(X,labels)
 
-    best_category="General"
-    best_score=0
+def predict_issue(text):
 
-    for category,sentences in training_data.items():
+    vec=vectorizer.transform([text])
 
-        score=0
-
-        for sentence in sentences:
-
-            for word in sentence.split():
-
-                if word in text:
-                    score+=1
-
-        if score>best_score:
-            best_score=score
-            best_category=category
-
-    return best_category
+    return model.predict(vec)[0]
 
 # ---------------- TROUBLESHOOTING ----------------
 
-def quick_steps(cat):
-
-    steps={
-    "VPN":"🔹 Restart VPN\n🔹 Check internet\n🔹 Try hotspot",
-    "WiFi":"🔹 Reconnect WiFi\n🔹 Restart laptop",
-    "Access":"🔹 Check caps lock\n🔹 Reset password",
-    "Printer":"🔹 Restart printer\n🔹 Clear print queue",
-    "Software":"🔹 Request install access from IT",
-    "Phishing":"🔹 Do not click links\n🔹 Report to IT"
-    }
-
-    return steps.get(cat,"Provide more details")
+solutions={
+"VPN":"🔹 Restart VPN\n🔹 Check internet\n🔹 Try hotspot",
+"WiFi":"🔹 Restart router\n🔹 Reconnect WiFi",
+"Access":"🔹 Reset password\n🔹 Check caps lock",
+"Printer":"🔹 Restart printer\n🔹 Clear print queue",
+"Phishing":"🔹 Do not click links\n🔹 Report to IT",
+"Software":"🔹 Contact IT for install access"
+}
 
 # ---------------- DATABASE ----------------
 
 conn=sqlite3.connect("helpdesk.db",check_same_thread=False)
-cur=conn.cursor()
+cursor=conn.cursor()
 
-cur.execute("""
+cursor.execute("""
 CREATE TABLE IF NOT EXISTS tickets(
 ticket_id TEXT,
-created_at TEXT,
+time TEXT,
 category TEXT,
 issue TEXT,
 status TEXT
@@ -96,229 +88,122 @@ status TEXT
 
 conn.commit()
 
-# ---------------- TICKET FUNCTIONS ----------------
+# ---------------- FUNCTIONS ----------------
 
-def create_ticket(issue):
-
-    category=predict_category(issue)
+def create_ticket(issue,category):
 
     ticket_id="HD-"+uuid.uuid4().hex[:6].upper()
 
     time=datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    cur.execute(
+    cursor.execute(
     "INSERT INTO tickets VALUES (?,?,?,?,?)",
     (ticket_id,time,category,issue,"Open")
     )
 
     conn.commit()
 
-    return ticket_id,category
+    return ticket_id
+
 
 def load_tickets():
 
-    cur.execute("SELECT * FROM tickets ORDER BY created_at DESC")
+    cursor.execute("SELECT * FROM tickets")
 
-    return cur.fetchall()
+    return cursor.fetchall()
 
-def update_ticket_status(ticket_id,status):
 
-    cur.execute(
+def update_status(ticket_id,status):
+
+    cursor.execute(
     "UPDATE tickets SET status=? WHERE ticket_id=?",
     (status,ticket_id)
     )
 
     conn.commit()
 
-# ---------------- DOWNLOAD FUNCTIONS ----------------
+# ---------------- CHAT STATE ----------------
 
-def tickets_to_csv(tickets):
+if "issue" not in st.session_state:
+    st.session_state.issue=None
 
-    buffer=io.StringIO()
+# ---------------- CHATBOT ----------------
 
-    writer=csv.writer(buffer)
+st.subheader("💬 Helpdesk Chatbot")
 
-    writer.writerow(["Ticket ID","Created","Category","Issue","Status"])
+user_input=st.text_input("Describe your issue")
 
-    for t in tickets:
-        writer.writerow(t)
+if user_input:
 
-    return buffer.getvalue()
+    category=predict_issue(user_input)
 
-def tickets_to_json(tickets):
+    st.session_state.issue=user_input
 
-    data=[]
+    st.session_state.category=category
 
-    for t in tickets:
+    st.success(f"🔍 Detected Issue: {category}")
 
-        data.append({
-        "ticket_id":t[0],
-        "created":t[1],
-        "category":t[2],
-        "issue":t[3],
-        "status":t[4]
-        })
+    st.info(solutions.get(category,"Provide more details"))
 
-    return json.dumps(data,indent=2)
+# ---------------- CREATE TICKET ----------------
 
-# ---------------- SESSION STATE ----------------
+if st.button("🎫 Create Ticket"):
 
-if "messages" not in st.session_state:
+    if st.session_state.issue:
 
-    st.session_state.messages=[
-    {"role":"assistant","content":"👋 **Office Helpdesk Bot**\n\nDescribe your issue.\nType **create ticket** when ready."}
-    ]
+        ticket=create_ticket(
+        st.session_state.issue,
+        st.session_state.category
+        )
 
-if "last_issue" not in st.session_state:
-    st.session_state.last_issue=None
+        st.success(f"Ticket Created: {ticket}")
 
-# ---------------- HEADER ----------------
+        st.session_state.issue=None
 
-st.title("🛠️ Office Helpdesk Assistant")
+    else:
 
-# ---------------- TABS ----------------
-
-chat_tab,ticket_tab=st.tabs(["💬 Chat","🎫 Tickets"])
-
-# ---------------- CHAT ----------------
-
-with chat_tab:
-
-    for msg in st.session_state.messages:
-
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    user_input=st.chat_input("Describe your issue")
-
-    if user_input:
-
-        st.session_state.messages.append({"role":"user","content":user_input})
-
-        text=user_input.lower().strip()
-
-        if text=="create ticket":
-
-            if st.session_state.last_issue:
-
-                ticket_id,category=create_ticket(st.session_state.last_issue)
-
-                response=f"""
-🎫 **Ticket Created**
-
-**Ticket ID:** {ticket_id}  
-**Category:** {category}  
-**Status:** Open
-
-Check **Tickets tab** to manage tickets.
-"""
-
-            else:
-
-                response="⚠️ Please describe the issue first."
-
-        else:
-
-            category=predict_category(user_input)
-
-            steps=quick_steps(category)
-
-            st.session_state.last_issue=user_input
-
-            response=f"""
-🔍 **Detected Issue:** {category}
-
-💡 **Suggested Fix**
-{steps}
-
-If problem continues type **create ticket**
-"""
-
-        st.session_state.messages.append({"role":"assistant","content":response})
-
-        st.rerun()
+        st.warning("Please describe issue first")
 
 # ---------------- TICKETS DASHBOARD ----------------
 
-with ticket_tab:
+st.divider()
 
-    st.header("🎫 Helpdesk Tickets")
+st.subheader("📋 Tickets Dashboard")
 
-    tickets=load_tickets()
+tickets=load_tickets()
+
+df=pd.DataFrame(
+tickets,
+columns=["Ticket ID","Time","Category","Issue","Status"]
+)
 
 # ---- STATS ----
 
-    open_count=len([t for t in tickets if t[4]=="Open"])
-    progress_count=len([t for t in tickets if t[4]=="In Progress"])
-    resolved_count=len([t for t in tickets if t[4]=="Resolved"])
+col1,col2,col3=st.columns(3)
 
-    col1,col2,col3=st.columns(3)
-
-    col1.metric("🟡 Open",open_count)
-    col2.metric("🔵 In Progress",progress_count)
-    col3.metric("🟢 Resolved",resolved_count)
-
-# ---- DOWNLOAD ----
-
-    col1,col2=st.columns(2)
-
-    with col1:
-
-        st.download_button(
-        "📥 Download CSV",
-        data=tickets_to_csv(tickets),
-        file_name="helpdesk_tickets.csv",
-        mime="text/csv"
-        )
-
-    with col2:
-
-        st.download_button(
-        "📥 Download JSON",
-        data=tickets_to_json(tickets),
-        file_name="helpdesk_tickets.json",
-        mime="application/json"
-        )
+col1.metric("🟡 Open",len(df[df["Status"]=="Open"]))
+col2.metric("🔵 In Progress",len(df[df["Status"]=="In Progress"]))
+col3.metric("🟢 Resolved",len(df[df["Status"]=="Resolved"]))
 
 # ---- FILTER ----
 
-    status_filter=st.selectbox(
-    "Filter Tickets",
-    ["All","Open","In Progress","Resolved"]
-    )
+status_filter=st.selectbox(
+"Filter Tickets",
+["All","Open","In Progress","Resolved"]
+)
 
-    if status_filter!="All":
-        tickets=[t for t in tickets if t[4]==status_filter]
+if status_filter!="All":
+    df=df[df["Status"]==status_filter]
 
-# ---- TICKET LIST ----
+st.dataframe(df)
 
-    for t in tickets:
+# ---------------- UPDATE STATUS ----------------
 
-        status_icon={
-        "Open":"🟡",
-        "In Progress":"🔵",
-        "Resolved":"🟢"
-        }
+st.subheader("🔧 Update Ticket Status")
 
-        icon=status_icon.get(t[4],"⚪")
+ticket_ids=df["Ticket ID"].tolist()
 
-        st.markdown(f"""
-<div class="ticket-card">
-
-<b>🎫 Ticket:</b> {t[0]} <br>
-<b>📅 Created:</b> {t[1]} <br>
-<b>📂 Category:</b> {t[2]} <br>
-<b>📝 Issue:</b> {t[3]} <br>
-<b>Status:</b> {icon} {t[4]}
-
-</div>
-""",unsafe_allow_html=True)
-
-# ---- UPDATE STATUS ----
-
-    st.subheader("🛠 Update Ticket Status")
-
-    ticket_ids=[t[0] for t in load_tickets()]
+if ticket_ids:
 
     selected_ticket=st.selectbox("Ticket ID",ticket_ids)
 
@@ -329,8 +214,30 @@ with ticket_tab:
 
     if st.button("Update Status"):
 
-        update_ticket_status(selected_ticket,new_status)
+        update_status(selected_ticket,new_status)
 
-        st.success("Ticket status updated")
+        st.success("Status updated")
 
-        st.rerun()
+        st.experimental_rerun()
+
+# ---------------- DOWNLOAD ----------------
+
+st.subheader("⬇ Download Tickets")
+
+csv=df.to_csv(index=False)
+
+st.download_button(
+"📥 Download CSV (Excel)",
+csv,
+"tickets.csv",
+"text/csv"
+)
+
+json_data=df.to_json(orient="records")
+
+st.download_button(
+"📥 Download JSON",
+json_data,
+"tickets.json",
+"application/json"
+)
