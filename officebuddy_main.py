@@ -3,71 +3,59 @@ import sqlite3
 import uuid
 from datetime import datetime
 
-st.set_page_config(page_title="Office Helpdesk NLP Bot", page_icon="🛠️")
+st.set_page_config(page_title="Office Helpdesk Bot", page_icon="🛠️")
 
-# ----------------------------
-# SIMPLE NLP TRAINING DATA
-# ----------------------------
+# -------------------------
+# SIMPLE NLP DATASET
+# -------------------------
 
-dataset = {
-"Access":[
-"cannot login",
-"password not working",
-"account locked",
-"login failed",
-"reset password"
-],
-
-"VPN":[
-"vpn not connecting",
-"vpn error",
-"cannot connect vpn",
-"vpn disconnecting"
-],
-
-"WiFi":[
-"wifi not working",
-"internet disconnected",
-"wifi slow",
-"network problem"
-],
-
-"Printer":[
-"printer not printing",
-"printer offline",
-"cannot print document"
-],
-
-"Phishing":[
-"suspicious email",
-"phishing email",
-"spam email"
-],
-
-"Software":[
-"cannot install software",
-"software installation issue",
-"need admin access"
-]
+training_data = {
+    "Access": [
+        "cannot login",
+        "password not working",
+        "account locked",
+        "login problem"
+    ],
+    "VPN": [
+        "vpn not connecting",
+        "vpn error",
+        "vpn disconnected"
+    ],
+    "WiFi": [
+        "wifi not working",
+        "internet slow",
+        "network disconnected"
+    ],
+    "Printer": [
+        "printer not printing",
+        "printer offline"
+    ],
+    "Software": [
+        "cannot install software",
+        "software issue"
+    ],
+    "Phishing": [
+        "suspicious email",
+        "phishing email"
+    ]
 }
 
-
-# ----------------------------
-# SIMPLE NLP PREDICTION
-# ----------------------------
+# -------------------------
+# NLP CLASSIFIER
+# -------------------------
 
 def predict_category(text):
 
     text = text.lower()
 
-    best_match = "General"
+    best_category = "General"
     best_score = 0
 
-    for category, examples in dataset.items():
+    for category, sentences in training_data.items():
 
         score = 0
 
-        for sentence in examples:
+        for sentence in sentences:
 
             for word in sentence.split():
 
@@ -76,19 +64,19 @@ def predict_category(text):
 
         if score > best_score:
             best_score = score
-            best_match = category
+            best_category = category
 
-    return best_match
+    return best_category
 
 
-# ----------------------------
+# -------------------------
 # TROUBLESHOOT STEPS
-# ----------------------------
+# -------------------------
 
 def quick_steps(cat):
 
     if cat == "VPN":
-        return "Restart VPN, check internet, try hotspot."
+        return "Restart VPN app, check internet connection, or try hotspot."
 
     if cat == "WiFi":
         return "Reconnect WiFi or restart laptop."
@@ -100,7 +88,7 @@ def quick_steps(cat):
         return "Restart printer and clear print queue."
 
     if cat == "Software":
-        return "Check company software portal or request admin access."
+        return "Request installation access from IT."
 
     if cat == "Phishing":
         return "Do not click links and report email to IT."
@@ -108,11 +96,11 @@ def quick_steps(cat):
     return "Please provide more details."
 
 
-# ----------------------------
+# -------------------------
 # DATABASE
-# ----------------------------
+# -------------------------
 
-conn = sqlite3.connect("helpdesk.db",check_same_thread=False)
+conn = sqlite3.connect("helpdesk.db", check_same_thread=False)
 cur = conn.cursor()
 
 cur.execute("""
@@ -120,7 +108,7 @@ CREATE TABLE IF NOT EXISTS tickets(
 ticket_id TEXT,
 created_at TEXT,
 category TEXT,
-summary TEXT,
+issue TEXT,
 status TEXT
 )
 """)
@@ -128,22 +116,22 @@ status TEXT
 conn.commit()
 
 
-def create_ticket(summary):
+def create_ticket(issue):
 
-    category = predict_category(summary)
+    category = predict_category(issue)
 
     ticket_id = "HD-" + uuid.uuid4().hex[:6].upper()
 
-    created = datetime.now().strftime("%Y-%m-%d %H:%M")
+    time = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     cur.execute(
-    "INSERT INTO tickets VALUES (?,?,?,?,?)",
-    (ticket_id,created,category,summary,"Open")
+        "INSERT INTO tickets VALUES (?,?,?,?,?)",
+        (ticket_id, time, category, issue, "Open")
     )
 
     conn.commit()
 
-    return ticket_id,category
+    return ticket_id, category
 
 
 def load_tickets():
@@ -153,34 +141,35 @@ def load_tickets():
     return cur.fetchall()
 
 
-# ----------------------------
+# -------------------------
 # SESSION STATE
-# ----------------------------
+# -------------------------
 
 if "messages" not in st.session_state:
 
     st.session_state.messages = [
-    {"role":"assistant","content":"Hi 👋 I am your Helpdesk Bot. Describe your issue or type **create ticket**."}
+        {"role": "assistant", "content": "Hi 👋 I am your Office Helpdesk Bot.\nDescribe your issue. When ready type **create ticket**."}
     ]
 
 if "last_issue" not in st.session_state:
-    st.session_state.last_issue = ""
+    st.session_state.last_issue = None
 
 
-# ----------------------------
+# -------------------------
 # TABS
-# ----------------------------
+# -------------------------
 
-chat_tab, ticket_tab = st.tabs(["💬 Chat","🎫 Tickets"])
+chat_tab, ticket_tab = st.tabs(["💬 Chat", "🎫 Tickets"])
 
 
-# ----------------------------
+# -------------------------
 # CHAT
-# ----------------------------
+# -------------------------
 
 with chat_tab:
 
     for msg in st.session_state.messages:
+
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
@@ -188,34 +177,41 @@ with chat_tab:
 
     if user_input:
 
-        st.session_state.messages.append({"role":"user","content":user_input})
+        st.session_state.messages.append({"role": "user", "content": user_input})
 
-        if user_input.lower() == "create ticket":
+        text = user_input.lower().strip()
 
-            if st.session_state.last_issue == "":
-                response = "Please describe your issue first."
+        # CREATE TICKET COMMAND
+        if text == "create ticket":
+
+            if st.session_state.last_issue:
+
+                ticket_id, category = create_ticket(st.session_state.last_issue)
+
+                response = f"""
+Ticket Created 🎫
+
+Ticket ID: **{ticket_id}**  
+Category: **{category}**  
+Status: **Open**
+
+Check the **Tickets tab** to view it.
+"""
 
             else:
 
-                ticket_id,cat = create_ticket(st.session_state.last_issue)
+                response = "Please describe your issue first."
 
-                response=f"""
-Ticket Created 🎫
-
-ID: **{ticket_id}**  
-Category: **{cat}**  
-Status: **Open**
-"""
-
+        # NORMAL ISSUE MESSAGE
         else:
 
-            category=predict_category(user_input)
+            category = predict_category(user_input)
 
-            steps=quick_steps(category)
+            steps = quick_steps(category)
 
-            st.session_state.last_issue=user_input
+            st.session_state.last_issue = user_input
 
-            response=f"""
+            response = f"""
 Detected Issue: **{category}**
 
 Suggested Fix:
@@ -224,32 +220,32 @@ Suggested Fix:
 If problem continues type **create ticket**
 """
 
-        st.session_state.messages.append({"role":"assistant","content":response})
+        st.session_state.messages.append({"role": "assistant", "content": response})
 
         st.rerun()
 
 
-# ----------------------------
+# -------------------------
 # TICKETS PAGE
-# ----------------------------
+# -------------------------
 
 with ticket_tab:
 
     st.title("Helpdesk Tickets")
 
-    tickets=load_tickets()
+    tickets = load_tickets()
 
-    if len(tickets)==0:
+    if len(tickets) == 0:
 
-        st.info("No tickets yet")
+        st.info("No tickets created yet")
 
     else:
 
         for t in tickets:
 
-            st.write("Ticket ID:",t[0])
-            st.write("Created:",t[1])
-            st.write("Category:",t[2])
-            st.write("Issue:",t[3])
-            st.write("Status:",t[4])
+            st.write("Ticket ID:", t[0])
+            st.write("Created:", t[1])
+            st.write("Category:", t[2])
+            st.write("Issue:", t[3])
+            st.write("Status:", t[4])
             st.divider()
