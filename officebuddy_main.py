@@ -1,23 +1,60 @@
-
 import streamlit as st
 import pandas as pd
 import uuid
 from datetime import datetime
 
+# NLP MODEL IMPORTS
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
+
 st.set_page_config(page_title="Office Helpdesk Assistant", page_icon="🛠️")
 
 st.title("🛠️ Office Helpdesk Assistant")
 
-# ---------------- NLP KEYWORDS ----------------
+# ---------------- NLP TRAINING DATA ----------------
 
-nlp_data = {
-    "Access": ["login","password","account","locked"],
-    "VPN": ["vpn","remote access"],
-    "WiFi": ["wifi","internet","network","slow"],
-    "Printer": ["printer","printing"],
-    "Phishing": ["phishing","spam","suspicious"],
-    "Software": ["install","software","application"]
-}
+train_texts = [
+"cannot login to account",
+"password not working",
+"account locked",
+"login issue",
+"vpn not connecting",
+"vpn disconnected",
+"remote access vpn issue",
+"internet slow",
+"wifi not working",
+"network problem",
+"printer not printing",
+"printer offline",
+"printing issue",
+"suspicious email received",
+"phishing email",
+"spam email",
+"cannot install software",
+"software installation problem",
+"application install error"
+]
+
+train_labels = [
+"Access","Access","Access","Access",
+"VPN","VPN","VPN",
+"WiFi","WiFi","WiFi",
+"Printer","Printer","Printer",
+"Phishing","Phishing","Phishing",
+"Software","Software","Software"
+]
+
+# ---------------- NLP MODEL ----------------
+
+vectorizer = CountVectorizer()
+
+X = vectorizer.fit_transform(train_texts)
+
+model = MultinomialNB()
+
+model.fit(X, train_labels)
+
+# ---------------- SOLUTIONS ----------------
 
 solutions = {
 "VPN":"Restart VPN and check internet connection.",
@@ -32,12 +69,12 @@ solutions = {
 # ---------------- NLP DETECTION ----------------
 
 def detect_issue(text):
-    text=text.lower()
-    for cat,words in nlp_data.items():
-        for w in words:
-            if w in text:
-                return cat
-    return "General"
+
+    text_vec = vectorizer.transform([text])
+
+    prediction = model.predict(text_vec)
+
+    return prediction[0]
 
 # ---------------- SESSION STORAGE ----------------
 
@@ -93,7 +130,7 @@ with tab1:
 
         category = detect_issue(user_input)
 
-        solution = solutions.get(category)
+        solution = solutions.get(category,"Please provide more details.")
 
         response = f"Issue detected: {category}\n\nSuggested Fix: {solution}"
 
