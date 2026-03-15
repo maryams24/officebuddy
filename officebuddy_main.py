@@ -20,14 +20,14 @@ nlp_data = {
 }
 
 def predict_issue(text):
-    text = text.lower()
-    for category, words in nlp_data.items():
+    text=text.lower()
+    for category,words in nlp_data.items():
         for word in words:
             if word in text:
                 return category
     return "General"
 
-solutions = {
+solutions={
 "VPN":"🔹 Restart VPN\n🔹 Check internet\n🔹 Try hotspot",
 "WiFi":"🔹 Restart router\n🔹 Reconnect WiFi",
 "Access":"🔹 Reset password\n🔹 Check caps lock",
@@ -39,20 +39,22 @@ solutions = {
 
 # ---------------- DATABASE ----------------
 
-DB_NAME = "helpdesk.db"
+DB="helpdesk.db"
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+    conn=sqlite3.connect(DB)
+    cursor=conn.cursor()
+
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tickets(
-        ticket_id TEXT,
-        time TEXT,
-        category TEXT,
-        issue TEXT,
-        status TEXT
+    ticket_id TEXT,
+    time TEXT,
+    category TEXT,
+    issue TEXT,
+    status TEXT
     )
     """)
+
     conn.commit()
     conn.close()
 
@@ -60,16 +62,17 @@ init_db()
 
 # ---------------- CREATE TICKET ----------------
 
-def create_ticket(issue, category):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+def create_ticket(issue,category):
 
-    ticket_id = "HD-" + uuid.uuid4().hex[:6].upper()
-    time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    conn=sqlite3.connect(DB)
+    cursor=conn.cursor()
+
+    ticket_id="HD-"+uuid.uuid4().hex[:6].upper()
+    time=datetime.now().strftime("%Y-%m-%d %H:%M")
 
     cursor.execute(
-        "INSERT INTO tickets VALUES (?,?,?,?,?)",
-        (ticket_id, time, category, issue, "Open")
+    "INSERT INTO tickets VALUES (?,?,?,?,?)",
+    (ticket_id,time,category,issue,"Open")
     )
 
     conn.commit()
@@ -77,33 +80,35 @@ def create_ticket(issue, category):
 
     return ticket_id
 
-# ---------------- LOAD TICKETS SAFELY ----------------
+# ---------------- LOAD TICKETS ----------------
 
 def load_tickets():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
 
-    try:
-        cursor.execute("SELECT * FROM tickets ORDER BY time DESC")
-        rows = cursor.fetchall()
-    except:
-        rows = []
+    conn=sqlite3.connect(DB)
+    cursor=conn.cursor()
+
+    cursor.execute("SELECT * FROM tickets ORDER BY time DESC")
+    rows=cursor.fetchall()
 
     conn.close()
 
-    df = pd.DataFrame(rows, columns=["Ticket ID","Time","Category","Issue","Status"])
+    df=pd.DataFrame(
+        rows,
+        columns=["Ticket ID","Time","Category","Issue","Status"]
+    )
 
     return df
 
 # ---------------- UPDATE STATUS ----------------
 
-def update_status(ticket_id, status):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+def update_status(ticket_id,status):
+
+    conn=sqlite3.connect(DB)
+    cursor=conn.cursor()
 
     cursor.execute(
-        "UPDATE tickets SET status=? WHERE ticket_id=?",
-        (status, ticket_id)
+    "UPDATE tickets SET status=? WHERE ticket_id=?",
+    (status,ticket_id)
     )
 
     conn.commit()
@@ -114,17 +119,17 @@ def update_status(ticket_id, status):
 st.subheader("💬 Helpdesk Chatbot")
 
 if "issue" not in st.session_state:
-    st.session_state.issue = None
-    st.session_state.category = None
+    st.session_state.issue=None
+    st.session_state.category=None
 
-user_input = st.text_input("Describe your issue")
+user_input=st.text_input("Describe your issue")
 
 if user_input:
 
-    category = predict_issue(user_input)
+    category=predict_issue(user_input)
 
-    st.session_state.issue = user_input
-    st.session_state.category = category
+    st.session_state.issue=user_input
+    st.session_state.category=category
 
     st.success(f"🔍 Detected Issue: {category}")
     st.info(solutions.get(category))
@@ -135,17 +140,19 @@ if st.button("🎫 Create Ticket"):
 
     if st.session_state.issue:
 
-        ticket = create_ticket(
-            st.session_state.issue,
-            st.session_state.category
+        ticket=create_ticket(
+        st.session_state.issue,
+        st.session_state.category
         )
 
         st.success(f"✅ Ticket Created: {ticket}")
 
-        st.session_state.issue = None
+        st.session_state.issue=None
+
+        st.rerun()   # refresh dashboard immediately
 
     else:
-        st.warning("Please describe the issue first.")
+        st.warning("Please describe the issue first")
 
 # ---------------- DASHBOARD ----------------
 
@@ -153,27 +160,23 @@ st.divider()
 
 st.subheader("📊 Ticket Dashboard")
 
-df = load_tickets()
-
-# ---- STATS ----
+df=load_tickets()
 
 if not df.empty:
 
-    col1,col2,col3 = st.columns(3)
+    col1,col2,col3=st.columns(3)
 
-    col1.metric("🟡 Open", len(df[df["Status"]=="Open"]))
-    col2.metric("🔵 In Progress", len(df[df["Status"]=="In Progress"]))
-    col3.metric("🟢 Resolved", len(df[df["Status"]=="Resolved"]))
+    col1.metric("🟡 Open",len(df[df["Status"]=="Open"]))
+    col2.metric("🔵 In Progress",len(df[df["Status"]=="In Progress"]))
+    col3.metric("🟢 Resolved",len(df[df["Status"]=="Resolved"]))
 
-# ---- FILTER ----
-
-status_filter = st.selectbox(
+status_filter=st.selectbox(
 "Filter Tickets",
 ["All","Open","In Progress","Resolved"]
 )
 
-if not df.empty and status_filter!="All":
-    df = df[df["Status"]==status_filter]
+if status_filter!="All" and not df.empty:
+    df=df[df["Status"]==status_filter]
 
 st.dataframe(df)
 
@@ -183,18 +186,18 @@ st.subheader("🔧 Update Ticket Status")
 
 if not df.empty:
 
-    ticket_ids = df["Ticket ID"].tolist()
+    ticket_ids=df["Ticket ID"].tolist()
 
-    selected_ticket = st.selectbox("Ticket ID", ticket_ids)
+    selected_ticket=st.selectbox("Ticket ID",ticket_ids)
 
-    new_status = st.selectbox(
-        "New Status",
-        ["Open","In Progress","Resolved"]
+    new_status=st.selectbox(
+    "New Status",
+    ["Open","In Progress","Resolved"]
     )
 
     if st.button("Update Status"):
 
-        update_status(selected_ticket, new_status)
+        update_status(selected_ticket,new_status)
 
         st.success("Status updated")
 
@@ -204,7 +207,7 @@ if not df.empty:
 
 st.subheader("⬇ Download Tickets")
 
-csv = df.to_csv(index=False)
+csv=df.to_csv(index=False)
 
 st.download_button(
 "📥 Download CSV",
@@ -213,7 +216,7 @@ csv,
 "text/csv"
 )
 
-json_data = df.to_json(orient="records")
+json_data=df.to_json(orient="records")
 
 st.download_button(
 "📥 Download JSON",
