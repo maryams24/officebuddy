@@ -5,76 +5,57 @@ import pandas as pd
 import json
 from datetime import datetime
 
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.naive_bayes import MultinomialNB
+st.set_page_config(page_title="Office Helpdesk Bot", page_icon="🛠️")
 
-st.set_page_config(page_title="Office Helpdesk Bot",page_icon="🛠️")
+st.title("🛠️ Office Helpdesk Assistant")
 
-st.title("🛠️ Office Helpdesk NLP Helpdesk")
+# ---------------- SIMPLE NLP ----------------
 
-# ---------------- NLP DATA ----------------
-
-texts=[
-"cannot login",
-"password not working",
-"account locked",
-"vpn not connecting",
-"vpn disconnected",
-"internet slow",
-"wifi not working",
-"printer not printing",
-"printer offline",
-"suspicious email",
-"phishing mail",
-"cannot install software",
-"software problem"
-]
-
-labels=[
-"Access",
-"Access",
-"Access",
-"VPN",
-"VPN",
-"WiFi",
-"WiFi",
-"Printer",
-"Printer",
-"Phishing",
-"Phishing",
-"Software",
-"Software"
-]
-
-vectorizer=CountVectorizer()
-
-X=vectorizer.fit_transform(texts)
-
-model=MultinomialNB()
-
-model.fit(X,labels)
+nlp_data = {
+    "Access": ["login","password","account","locked"],
+    "VPN": ["vpn","connect vpn"],
+    "WiFi": ["wifi","internet","network","slow"],
+    "Printer": ["printer","printing"],
+    "Phishing": ["phishing","suspicious email","spam"],
+    "Software": ["install","software","application"]
+}
 
 def predict_issue(text):
 
-    vec=vectorizer.transform([text])
+    text = text.lower()
 
-    return model.predict(vec)[0]
+    for category,words in nlp_data.items():
 
-# ---------------- TROUBLESHOOTING ----------------
+        for word in words:
 
-solutions={
+            if word in text:
+                return category
+
+    return "General"
+
+# ---------------- TROUBLESHOOT ----------------
+
+solutions = {
+
 "VPN":"🔹 Restart VPN\n🔹 Check internet\n🔹 Try hotspot",
+
 "WiFi":"🔹 Restart router\n🔹 Reconnect WiFi",
+
 "Access":"🔹 Reset password\n🔹 Check caps lock",
+
 "Printer":"🔹 Restart printer\n🔹 Clear print queue",
-"Phishing":"🔹 Do not click links\n🔹 Report to IT",
-"Software":"🔹 Contact IT for install access"
+
+"Phishing":"🔹 Do not click links\n🔹 Report email to IT",
+
+"Software":"🔹 Request install access from IT",
+
+"General":"Please provide more details"
 }
 
 # ---------------- DATABASE ----------------
 
-conn=sqlite3.connect("helpdesk.db",check_same_thread=False)
-cursor=conn.cursor()
+conn = sqlite3.connect("helpdesk.db",check_same_thread=False)
+cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS tickets(
@@ -105,13 +86,11 @@ def create_ticket(issue,category):
 
     return ticket_id
 
-
 def load_tickets():
 
-    cursor.execute("SELECT * FROM tickets")
+    cursor.execute("SELECT * FROM tickets ORDER BY time DESC")
 
     return cursor.fetchall()
-
 
 def update_status(ticket_id,status):
 
@@ -122,28 +101,26 @@ def update_status(ticket_id,status):
 
     conn.commit()
 
-# ---------------- CHAT STATE ----------------
-
-if "issue" not in st.session_state:
-    st.session_state.issue=None
-
 # ---------------- CHATBOT ----------------
 
 st.subheader("💬 Helpdesk Chatbot")
 
-user_input=st.text_input("Describe your issue")
+if "issue" not in st.session_state:
+    st.session_state.issue=None
+    st.session_state.category=None
+
+user_input = st.text_input("Describe your issue")
 
 if user_input:
 
-    category=predict_issue(user_input)
+    category = predict_issue(user_input)
 
     st.session_state.issue=user_input
-
     st.session_state.category=category
 
     st.success(f"🔍 Detected Issue: {category}")
 
-    st.info(solutions.get(category,"Provide more details"))
+    st.info(solutions.get(category))
 
 # ---------------- CREATE TICKET ----------------
 
@@ -156,19 +133,19 @@ if st.button("🎫 Create Ticket"):
         st.session_state.category
         )
 
-        st.success(f"Ticket Created: {ticket}")
+        st.success(f"✅ Ticket Created: {ticket}")
 
         st.session_state.issue=None
 
     else:
 
-        st.warning("Please describe issue first")
+        st.warning("Please describe your issue first.")
 
-# ---------------- TICKETS DASHBOARD ----------------
+# ---------------- DASHBOARD ----------------
 
 st.divider()
 
-st.subheader("📋 Tickets Dashboard")
+st.subheader("📊 Ticket Dashboard")
 
 tickets=load_tickets()
 
@@ -216,7 +193,7 @@ if ticket_ids:
 
         update_status(selected_ticket,new_status)
 
-        st.success("Status updated")
+        st.success("Ticket status updated")
 
         st.experimental_rerun()
 
